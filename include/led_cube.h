@@ -1,16 +1,25 @@
+#ifndef LED_CUBE
+#define LED_CUBE
+
+#include <Arduino.h>
 //length of one edge of the cube, in LEDs. (aim is a 16x16x16 cube)
 #define CUBE_SIZE 16
 #define NUM_STRANDS 16
 
 //total number leds in the cube
 #define TOTAL_LEDS (CUBE_SIZE*CUBE_SIZE*CUBE_SIZE)
+#define LED_PER_STRAND (TOTAL_LEDS / NUM_STRANDS)
 
+
+#define MSG_END 0xA5A5
 //Length of serial message to/from controller, in bytes
-#define MESSAGE_LEN TOTAL_LEDS / 8
+//2 bytes for msg length, 2 bytes per LED, 2 bytes for end of msg, 2 for checksum
+#define MESSAGE_LEN (2 + (2*CUBE_SIZE) + 2 + 2)
 
 #define BAUD_RATE 115200
 
-#include <Arduino.h>
+
+
 
 #ifdef ESP32
 #pragma message "BUILDING FOR ESP32 in led_cube.h"
@@ -36,3 +45,4 @@ class LEDLine
         int set_bottom_coord(coord);
         int get_line_coords(coord * line_buffer);
 };
+#endif //LED_CUBE
