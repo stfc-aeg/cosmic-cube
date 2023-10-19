@@ -3,8 +3,10 @@
 
 #include <Arduino.h>
 //length of one edge of the cube, in LEDs. (aim is a 16x16x16 cube)
-#define CUBE_SIZE 16
-#define NUM_STRANDS 16
+#define CUBE_SIZE 12
+#define NUM_STRANDS 9
+#define TOWER_SIZE 4
+#define PIXELS_PER_TOWER (TOWER_SIZE*TOWER_SIZE*CUBE_SIZE)
 
 //total number leds in the cube
 #define TOTAL_LEDS (CUBE_SIZE*CUBE_SIZE*CUBE_SIZE)
