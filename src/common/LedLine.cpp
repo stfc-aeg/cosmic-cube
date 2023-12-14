@@ -2,9 +2,9 @@
 
 LEDLine::LEDLine(coord top, coord bot)
 {
-    Serial.println("MAKING A LINE");
+    // Serial.println("MAKING A LINE");
     calc_line(top, bot);
-    Serial.println("LINE CREATED");
+    // Serial.println("LINE CREATED");
 }
 
 
