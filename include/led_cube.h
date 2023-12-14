@@ -12,6 +12,7 @@
 #define TOTAL_LEDS (CUBE_SIZE*CUBE_SIZE*CUBE_SIZE)
 #define LED_PER_STRAND (TOTAL_LEDS / NUM_STRANDS)
 
+#define SERIAL_SIZE_RX 1024
 
 #define MSG_END 0xA5A5
 //Length of serial message to/from controller, in bytes

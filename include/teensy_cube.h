@@ -5,8 +5,12 @@
 // #include <Adafruit_NeoPixel.h>
 #include <OctoWS2811.h>
 
+#include <intervalTimer.h>
 
 #define BOARD_NUM 1
+
+#define DEBUG false
+#define DEBUG_SERIAL if(DEBUG)Serial
 
 #define DIM_PIN 3
 #define BRIGHTNESS 1024
@@ -17,13 +21,11 @@ const uint32_t set_color[3] = {0x00FF0000, 0x0000FF00, 0x000000FF}; //RGB
 #if BOARD_NUM == 0
 const int num_pins = 3;
 byte led_pins[num_pins] = {14, 15, 16}; //, 15, 16, 17, 18, 19, 20, 21};
-#define IS_OUR_LED(coord) (coord.y < CUBE_SIZE/3)
+#define IS_OUR_LED(coord) (coord.y < TOWER_SIZE)
 #elif BOARD_NUM == 1
 const int num_pins = 6;
 byte led_pins[num_pins] = {14, 15, 16, 17, 18, 19};
-const uint16_t msg_slice_start = MESSAGE_LEN / 2;
-const uint16_t msg_slice_end = MESSAGE_LEN;
-#define IS_OUR_LED(coord) (coord.y >= CUBE_SIZE/2)
+#define IS_OUR_LED(coord) (coord.y >= TOWER_SIZE)
 #endif
 
 // These buffers need to be large enough for all the pixels.
@@ -38,13 +40,17 @@ int drawingMemory[LED_PER_STRAND * num_pins * bytesPerLED / 4];
 const int config = WS2811_GRB | WS2811_800kHz;
 
 int num_traces = 0;
-uint16_t incoming_message[MESSAGE_LEN] = {0};
+uint8_t incoming_message[SERIAL_SIZE_RX] = {0};
+uint8_t rx_buffer[SERIAL_SIZE_RX*2];
+int byte_count = 0;
+
+IntervalTimer cubeTimer;
 
 OctoWS2811 leds(LED_PER_STRAND, displayMemory, drawingMemory, config, num_pins, led_pins);
 
 int coord_to_tower_pos(coord led);
 int coord_to_mini_cube_pos(coord led);
-bool read_serial_message(uint16_t *msg_buff);
+bool check_serial_message(uint16_t *msg_buff, int count);
 coord get_coord_from_msg(uint16_t msg);
 void fade_whole_cube();
 void update_cube();
@@ -56,7 +62,7 @@ struct queue_object{
     uint32_t color;
 };
 
-const int queue_size = LED_PER_STRAND * num_pins;
+const int queue_size = CUBE_SIZE*CUBE_SIZE*CUBE_SIZE;
 queue_object led_queue[queue_size];
 int queue_front = 0;
 int queue_end = 0;

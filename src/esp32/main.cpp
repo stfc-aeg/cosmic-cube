@@ -1,41 +1,89 @@
 #include "esp32_cube.h"
 
-void interruptCalled() {
-  // DEBUG_SERIAL.println("INTERRUPT CALLED");
-  data_ready_flag = 1;
-}
-
 void setup() {
-  // Serial1.setRxBufferSize(SERIAL_SIZE_RX);
-  // Serial1.setTxBufferSize(SERIAL_SIZE_RX);
+  Serial1.setRxBufferSize(SERIAL_SIZE_RX);
+  Serial1.setTxBufferSize(SERIAL_SIZE_RX);
   DEBUG_SERIAL.begin(9600); //usb cable, for debug
 
   Serial1.begin(BAUD_RATE); // connection to teensys?
-  attachInterrupt(PIN_EVENT_BUF, interruptCalled, RISING);
+  pinMode(PIN_EVENT_BUF, INPUT);
 
   // pinMode(PIN_ADC_CLOCK, OUTPUT);
-  // pinMode(PIN_EVENT_CLR, OUTPUT);
+  pinMode(PIN_EVENT_CLR, OUTPUT);
 
-  // pinMode(PIN_ADC_TN, INPUT);
-  // pinMode(PIN_ADC_TE, INPUT);
-  // pinMode(PIN_ADC_TS, INPUT);
-  // pinMode(PIN_ADC_TW, INPUT);
-  // pinMode(PIN_ADC_BN, INPUT);
-  // pinMode(PIN_ADC_BE, INPUT);
-  // pinMode(PIN_ADC_BS, INPUT);
-  // pinMode(PIN_ADC_BW, INPUT);
+  pinMode(LED_BUILTIN, OUTPUT);
+#ifndef TEST
+  pinMode(PIN_ADC_TN, INPUT);
+  pinMode(PIN_ADC_TE, INPUT);
+  pinMode(PIN_ADC_TS, INPUT);
+  pinMode(PIN_ADC_TW, INPUT);
+  pinMode(PIN_ADC_BN, INPUT);
+  pinMode(PIN_ADC_BE, INPUT);
+  pinMode(PIN_ADC_BS, INPUT);
+  pinMode(PIN_ADC_BW, INPUT);
+#endif
 
-  // pinMode(LED_BUILTIN, OUTPUT);
 }
 
 void loop(){
-  if(data_ready_flag)
+#ifdef TEST_SPARKLES //random lights 
+  const int msg_size = 4;
+  uint16_t msg[msg_size];
+  coord pixel;
+  pixel.x = random(CUBE_SIZE);
+  pixel.y = random(CUBE_SIZE);
+  pixel.z = random(CUBE_SIZE);
+
+  uint16_t coord_bytes = pixel.x | (pixel.y <<4) | (pixel.z << 8);
+  msg[0] = 1; //single pixel
+  uint16_t checksum = 1;
+  checksum ^= coord_bytes;
+  msg[1] = coord_bytes;
+  msg[2] = checksum;
+  msg[3] = MSG_END;
+  Serial1.write((uint8_t *)msg, msg_size*2);
+  delay(20);
+#else
+#ifdef TEST_LAYERS
+  DEBUG_SERIAL.println("Creating Layer");
+  digitalWrite(LED_BUILTIN, HIGH);
+  const int msg_size = 1 + (CUBE_SIZE*CUBE_SIZE) + 2;
+  uint16_t msg[msg_size];
+  coord plane[CUBE_SIZE*CUBE_SIZE];
+  for(int i = 0; i<(CUBE_SIZE*CUBE_SIZE); i++)
+  {
+    plane[i].z = num_traces % CUBE_SIZE;
+    
+    plane[i].x = i % CUBE_SIZE;
+    plane[i].y = i / CUBE_SIZE;
+  }
+
+  num_traces ++;
+
+  msg[0] = CUBE_SIZE*CUBE_SIZE;
+  uint16_t checksum = msg[0];
+  for(int j = 0; j<CUBE_SIZE*CUBE_SIZE; j++)
+  {
+    uint16_t coord_bytes = plane[j].x | (plane[j].y << 4) | (plane[j].z << 8);
+    msg[j+1] = coord_bytes;
+    checksum ^= coord_bytes;
+  }
+
+  msg[msg_size - 2] = checksum;
+  msg[msg_size - 1] = MSG_END;
+
+  Serial1.write((uint8_t *)msg, msg_size*2);
+  delay(1000);
+  digitalWrite(LED_BUILTIN, LOW);
+  delay(1000);
+#else
+  if(digitalRead(PIN_EVENT_BUF))
   {
     DEBUG_SERIAL.println("INTERRUPT TRIGGERED. READING DATA");
     uint16_t data_buff[8] = {};
 #ifdef TEST
-    //generate fake data, we don't have the ADCs connected
-    // digitalWrite(PIN_EVENT_CLR, HIGH);
+    //generate a fake trace, rather than basing it off the actual signals from the SiPM
+    digitalWrite(PIN_EVENT_CLR, HIGH);
     long xtop = random(CUBE_SIZE);
     long ytop = random(CUBE_SIZE);
     long xbot = random(CUBE_SIZE);
@@ -64,11 +112,12 @@ void loop(){
     data_buff[5] = lookup_table[xbot][CUBE_SIZE-ybot];
     data_buff[6] = lookup_table[CUBE_SIZE-ybot][CUBE_SIZE-xbot];
     data_buff[7] = lookup_table[CUBE_SIZE-xbot][ybot];
-    // digitalWrite(PIN_EVENT_CLR, LOW);
+    digitalWrite(PIN_EVENT_CLR, LOW);
 #else
     //reading data from the SPiM ADCs
     get_spim_data(data_buff);
 #endif //TEST
+  
 
     LEDLine line = get_line_from_data(data_buff);
     coord line_coords[CUBE_SIZE] = {0};
@@ -82,21 +131,17 @@ void loop(){
     create_serial_message(msg, line);
     // digitalWrite(LED_BUILTIN, HIGH);
     Serial1.write((uint8_t *)msg, MESSAGE_LEN);
-    // digitalWrite(LED_BUILTIN, LOW);
 
+    // digitalWrite(LED_BUILTIN, LOW);
 
     data_ready_flag = 0;
   }
-  else{
-    uint32_t timestamp = millis();
-    if(timestamp - last_timestamp > SIGNAL_TIMER || timestamp < last_timestamp)
-    {
-      last_timestamp = timestamp;
-      data_ready_flag = 1;
-    }
-  }
+  
+#endif //DEF TEST_LAYERS
+#endif //DEF TEST SPARKLES
 }
 
+#ifndef TEST
 int get_spim_data(uint16_t * dest_buffer)
 {
   //manually control clock pin:
@@ -104,44 +149,45 @@ int get_spim_data(uint16_t * dest_buffer)
   //save to buffer (8 values)
 
   // set event clear to high
-  // digitalWrite(PIN_EVENT_CLR, HIGH);
-  // for(int i=0; i<ADC_BITS; i++)
-  // {
-  //   //set clock high, read in bit, set clock low
-  //   // digitalWrite(PIN_ADC_CLOCK, HIGH);
-  //   dest_buffer[0] = (dest_buffer[0] << 1) | digitalRead(PIN_ADC_TN);
-  //   dest_buffer[1] = (dest_buffer[1] << 1) | digitalRead(PIN_ADC_TE);
-  //   dest_buffer[2] = (dest_buffer[2] << 1) | digitalRead(PIN_ADC_TS);
-  //   dest_buffer[3] = (dest_buffer[3] << 1) | digitalRead(PIN_ADC_TW);
+  digitalWrite(PIN_EVENT_CLR, HIGH);
+  for(int i=0; i<ADC_BITS; i++)
+  {
+    //set clock high, read in bit, set clock low
+    digitalWrite(PIN_ADC_CLOCK, HIGH);
+    dest_buffer[0] = (dest_buffer[0] << 1) | digitalRead(PIN_ADC_TN);
+    dest_buffer[1] = (dest_buffer[1] << 1) | digitalRead(PIN_ADC_TE);
+    dest_buffer[2] = (dest_buffer[2] << 1) | digitalRead(PIN_ADC_TS);
+    dest_buffer[3] = (dest_buffer[3] << 1) | digitalRead(PIN_ADC_TW);
 
-  //   dest_buffer[4] = (dest_buffer[4] << 1) | digitalRead(PIN_ADC_BN);
-  //   dest_buffer[5] = (dest_buffer[5] << 1) | digitalRead(PIN_ADC_BE);
-  //   dest_buffer[6] = (dest_buffer[6] << 1) | digitalRead(PIN_ADC_BS);
-  //   dest_buffer[7] = (dest_buffer[7] << 1) | digitalRead(PIN_ADC_BW);
-  //   // digitalWrite(PIN_ADC_CLOCK, LOW);
-  // }
+    dest_buffer[4] = (dest_buffer[4] << 1) | digitalRead(PIN_ADC_BN);
+    dest_buffer[5] = (dest_buffer[5] << 1) | digitalRead(PIN_ADC_BE);
+    dest_buffer[6] = (dest_buffer[6] << 1) | digitalRead(PIN_ADC_BS);
+    dest_buffer[7] = (dest_buffer[7] << 1) | digitalRead(PIN_ADC_BW);
+    digitalWrite(PIN_ADC_CLOCK, LOW);
+  }
 
-  // DEBUG_SERIAL.println("VALUES READ:");
-  // DEBUG_SERIAL.print("Top North: ");
-  // DEBUG_SERIAL.println(dest_buffer[0], HEX);
-  // DEBUG_SERIAL.print("Top East: ");
-  // DEBUG_SERIAL.println(dest_buffer[1], HEX);
-  // DEBUG_SERIAL.print("Top South: ");
-  // DEBUG_SERIAL.println(dest_buffer[2], HEX);
-  // DEBUG_SERIAL.print("Top West: ");
-  // DEBUG_SERIAL.println(dest_buffer[3], HEX);
-  // DEBUG_SERIAL.print("Bottom North: ");
-  // DEBUG_SERIAL.println(dest_buffer[4], HEX);
-  // DEBUG_SERIAL.print("Bottom East: ");
-  // DEBUG_SERIAL.println(dest_buffer[5], HEX);
-  // DEBUG_SERIAL.print("Bottom South: ");
-  // DEBUG_SERIAL.println(dest_buffer[6], HEX);
-  // DEBUG_SERIAL.print("Bottom West: ");
-  // DEBUG_SERIAL.println(dest_buffer[7], HEX);
+  DEBUG_SERIAL.println("VALUES READ:");
+  DEBUG_SERIAL.print("Top North: ");
+  DEBUG_SERIAL.println(dest_buffer[0], HEX);
+  DEBUG_SERIAL.print("Top East: ");
+  DEBUG_SERIAL.println(dest_buffer[1], HEX);
+  DEBUG_SERIAL.print("Top South: ");
+  DEBUG_SERIAL.println(dest_buffer[2], HEX);
+  DEBUG_SERIAL.print("Top West: ");
+  DEBUG_SERIAL.println(dest_buffer[3], HEX);
+  DEBUG_SERIAL.print("Bottom North: ");
+  DEBUG_SERIAL.println(dest_buffer[4], HEX);
+  DEBUG_SERIAL.print("Bottom East: ");
+  DEBUG_SERIAL.println(dest_buffer[5], HEX);
+  DEBUG_SERIAL.print("Bottom South: ");
+  DEBUG_SERIAL.println(dest_buffer[6], HEX);
+  DEBUG_SERIAL.print("Bottom West: ");
+  DEBUG_SERIAL.println(dest_buffer[7], HEX);
 
-  // // digitalWrite(PIN_EVENT_CLR, LOW);
+  // digitalWrite(PIN_EVENT_CLR, LOW);
   return 0;
 }
+#endif //IF NOT DEF TEST
 
 LEDLine get_line_from_data(uint16_t *spim_data)
 {

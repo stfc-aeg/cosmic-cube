@@ -1,10 +1,14 @@
 #include "teensy_cube.h"
 
 void setup() {
-    // Serial.begin(9600); //usb cable, for debug
-    Serial1.begin(BAUD_RATE); // connection to esp32?
+    DEBUG_SERIAL.begin(9600); //usb cable, for debug
+    
+    Serial1.addMemoryForRead(rx_buffer, sizeof(rx_buffer)); //larger buffer in case of long messages
+    Serial1.begin(BAUD_RATE); // connection to esp32
     pinMode(LED_BUILTIN, OUTPUT);
-
+    
+    cubeTimer.begin(update_cube, 10000); // update cube every 10 milliseconds
+    
     //setup for neopixels
     leds.begin();
     leds.show();
@@ -12,74 +16,71 @@ void setup() {
 
 void loop() 
 { 
-    // fade_whole_cube();
-    if (Serial1.available() >= MESSAGE_LEN)
+    if(Serial1.available())
     {
-        uint16_t incoming_message[MESSAGE_LEN] = {0};
-        if(!read_serial_message(incoming_message))
-        {   
-            // Serial.println("CHECKSUM INVALID");
-            return; //TODO if checksum invalid, skip the rest of the loop I guess?
-        }
-        uint32_t color = set_color[num_traces % 3];
-        num_traces ++;
-        // coord new_leds[incoming_message[0]+1];
-        // Serial.println("Adding New Vals to ")
+        digitalWrite(LED_BUILTIN, HIGH);
+        uint8_t msg_byte = Serial1.read();
 
-        //need to read this backwards in order to append to queue correctly
+        incoming_message[byte_count] = msg_byte;
+        byte_count ++;
 
-        for(int i = incoming_message[0]; i>0; i--)
-        // for(int i = 1; i< incoming_message[0]+1; i++)
+        if(msg_byte == 0xa5 && incoming_message[byte_count-2] == 0xa5)
         {
-            coord coord  = get_coord_from_msg(incoming_message[i]);
+            DEBUG_SERIAL.print("\nFull message Read. Message Length: ");
+            DEBUG_SERIAL.println(byte_count);
 
-            // int tower_pos = coord_to_tower_pos(coord);
-            int tower_pos = coord_to_mini_cube_pos(coord);
+            uint16_t message[byte_count/2] = {0};
+            for(int i = 0; i < byte_count/2; i++)
+            {
+                message[i] = (incoming_message[(i*2)+1] << 8) | incoming_message[i*2];
+            }
+
+            //recalculate checksum to ensure message came through correctly
+            if(!check_serial_message(message, byte_count/2))
+            {
+                byte_count = 0;  // reset count
+                return; // checksum didn't match, cancel
+            }
+
+            byte_count = 0;  // reset count
+
+            uint32_t color = set_color[num_traces % 3];
+            num_traces ++;
+
+            for(int j = message[0]; j>0; j--)
+            {
+            coord coord  = get_coord_from_msg(message[j]);
+
+            int tower_pos = coord_to_tower_pos(coord);
+#if DEBUG
             char buff[256];
             sprintf(buff, "Coord (%d,%d,%d) to position: %d", coord.x,coord.y,coord.z, tower_pos);
-            Serial.println(buff);
+            DEBUG_SERIAL.println(buff);
+#endif
             queue_object new_led = {tower_pos, color};
             queue_append(new_led);
+            }
         }
+        digitalWrite(LED_BUILTIN, LOW);
     }
-    update_cube();
-    delay(10);
 }
 
-bool read_serial_message(uint16_t *msg_buff)
+bool check_serial_message(uint16_t *msg_buff, int count)
 {
     digitalWrite(LED_BUILTIN, HIGH);
     uint16_t checksum = 0;
-    int counter = 0;
-    for(int i = 0; i<MESSAGE_LEN; i++)
-    {
-        uint8_t first = Serial1.read();
-        uint8_t second = Serial1.read();
-        msg_buff[i] = (second << 8) | first;
-        counter ++;
-        if(msg_buff[i] == MSG_END)
-        {
-            break;
-        }
-    }
 
-    // Serial.print(String("BOARD " + String(BOARD_NUM) + " Received: " + counter + " bytes: "));
-    for(int i = 0; i<counter; i++){
-
-        Serial.print(msg_buff[i], HEX);
-        Serial.print(" ");
-    }
-    Serial.println("");
-
-    for(int i = 0; i<(MESSAGE_LEN/2) - 2; i++)
+    for(int i = 0; i<count - 2; i++)
     {
         checksum ^= msg_buff[i];
     }
-    Serial.print("CHECKSUM: ");
-    Serial.println(checksum, HEX);
+    DEBUG_SERIAL.print("CHECKSUM CALC: ");
+    DEBUG_SERIAL.println(checksum, HEX);
+    DEBUG_SERIAL.print("CHECKSUM MSG : ");
+    DEBUG_SERIAL.println(msg_buff[count-2], HEX);
     digitalWrite(LED_BUILTIN, LOW);
 
-    return checksum == msg_buff[(MESSAGE_LEN/2) - 2];
+    return checksum == msg_buff[count - 2];
 }
 
 coord get_coord_from_msg(uint16_t msg)
@@ -126,7 +127,7 @@ int coord_to_tower_pos(coord led)
 {
     if(!IS_OUR_LED(led)) return -1;
 #if BOARD_NUM == 1
-    led.y -= CUBE_SIZE/TOWER_SIZE; //offset for being the other board
+    led.y -= TOWER_SIZE; //offset for being the other board
 #endif
     uint8_t tower_num = (led.x/TOWER_SIZE) + ((led.y/TOWER_SIZE)*(CUBE_SIZE/TOWER_SIZE));
     // modulo x and y so we can work out specific position relative to tower
@@ -145,33 +146,6 @@ int coord_to_tower_pos(coord led)
 
 
     return (PIXELS_PER_TOWER*tower_num) + led.x + (led.y*TOWER_SIZE) + (led.z*TOWER_SIZE*TOWER_SIZE);
-}
-
-//returns the position of an LED in 
-
-//returns the position of an LED in the strand, if using the CUBE:BIT 5x5x5 cube
-int coord_to_mini_cube_pos(coord led)
-{
-    /*examples: 
-    (0,0,0) = 0
-    (1,0,0) = 1
-    (0,1,0) = 9
-    (2,2,0) = 12
-    (4,1,0) = 5
-
-    */
-
-    if(led.z % 2)
-    {
-        //if z is odd, flip along the xy diagonal. think this works?
-        int c = led.x;
-        led.x = (CUBE_SIZE-1) - led.y;
-        led.y = (CUBE_SIZE-1) - c;
-    }
-
-    if(led.y % 2) led.x = 4 - led.x;
-
-    return led.x + (led.y*CUBE_SIZE) + (led.z*CUBE_SIZE*CUBE_SIZE);
 }
 
 queue_object queue_pop()

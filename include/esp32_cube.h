@@ -1,17 +1,19 @@
 //TEST defines if we want to generate fake SPIM data rather than read it in
 #define TEST
 
+// #define TEST_LAYERS  //light up one layer at a time, in order, to debug
+// #define TEST_SPARKLES //light up random individual LEDs
+
+
 #include "led_cube.h"
 #include "lookup_table.h"
 
-#define DEBUG true
+#define DEBUG false
 #define DEBUG_SERIAL if(DEBUG)Serial
 
-#define SERIAL_SIZE_RX 1024
-
-#define PIN_EVENT_BUF 21
-// #define PIN_ADC_CLOCK 20
-// #define PIN_EVENT_CLR 22
+#define PIN_EVENT_BUF 15
+#define PIN_ADC_CLOCK 20
+#define PIN_EVENT_CLR 33
 #define SIGNAL_TIMER 500
 
 const int data_pins[8] = {5,6,7,8,9,10,11,12};
@@ -32,6 +34,7 @@ bool data_ready_flag = 0;
 
 uint32_t last_timestamp = 0;
 
+int num_traces = 0;
 
 //functions
 
