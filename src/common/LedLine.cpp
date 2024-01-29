@@ -2,9 +2,7 @@
 
 LEDLine::LEDLine(coord top, coord bot)
 {
-    // Serial.println("MAKING A LINE");
     calc_line(top, bot);
-    // Serial.println("LINE CREATED");
 }
 
 
@@ -13,12 +11,9 @@ int LEDLine::calc_line(coord top, coord bot)
     for (uint8_t z=0; z < CUBE_SIZE; z ++)
     {
         float t = (float)z / (float)(CUBE_SIZE - 1);
-        Serial.print(t);
         coord new_led = {0, 0, z};
         new_led.x = round(bot.x + t * (top.x - bot.x));
         new_led.y = round(bot.y + t * (top.y - bot.y));
-        Serial.print(new_led.x);
-        Serial.println(new_led.y);
         line[z] = new_led;
     }
     return CUBE_SIZE;
